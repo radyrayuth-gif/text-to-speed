@@ -5,7 +5,7 @@ import re
 import base64
 from datetime import datetime
 
-st.set_page_config(page_title="Khmer Sync TTS", page_icon="🎙️")
+st.set_page_config(page_title="Khmer Sync & Download", page_icon="🎙️")
 
 def srt_time_to_seconds(time_str):
     try:
@@ -26,51 +26,68 @@ def parse_srt_to_list(srt_text):
             subtitles.append({"start": start_sec, "text": " ".join(text_lines)})
     return subtitles
 
-async def get_audio_base64(text, voice, rate):
-    # កំណត់ល្បឿនអាន (ឧទាហរណ៍៖ +10% ឬ -10%)
+async def get_audio_data(text, voice, rate):
     rate_str = f"{rate:+d}%"
     communicate = edge_tts.Communicate(text, voice, rate=rate_str)
     audio_data = b""
     async for chunk in communicate.stream():
         if chunk["type"] == "audio":
             audio_data += chunk["data"]
-    return base64.b64encode(audio_data).decode()
+    return audio_data
 
-st.title("🎙️ Khmer TTS: Sync & Speed Control")
+st.title("🎙️ Khmer TTS: Sync, Replay & Download")
 
 with st.sidebar:
-    st.header("⚙️ ការកំណត់សំឡេង")
+    st.header("⚙️ ការកំណត់")
     voice_id = st.selectbox("ជ្រើសរើសសំឡេង:", ["km-KH-SreymomNeural", "km-KH-PisethNeural"])
-    # បន្ថែមរបារសារ៉េល្បឿន
     speed_rate = st.slider("ល្បឿនអាន (%)", -50, 50, 0, 5)
 
-srt_input = st.text_area("បិទភ្ជាប់អត្ថបទ SRT ទីនេះ:", height=300)
+srt_input = st.text_area("បិទភ្ជាប់ SRT ទីនេះ:", height=300)
 
-if st.button("🚀 ចាប់ផ្ដើមផលិតសំឡេង Sync"):
+if st.button("🚀 ចាប់ផ្ដើមផលិតសំឡេង"):
     if srt_input:
         subs = parse_srt_to_list(srt_input)
         if subs:
-            with st.spinner("កំពុងរៀបចំសំឡេង..."):
-                js_code = """
-                <script>
-                function playAudioAtTime(base64Data, startTime) {
-                    setTimeout(() => {
-                        var audio = new Audio("data:audio/mp3;base64," + base64Data);
-                        audio.play();
-                    }, startTime * 1000);
-                }
-                </script>
-                """
-                for sub in subs:
-                    # បញ្ជូនល្បឿនដែលបានសារ៉េទៅកាន់មុខងារផលិតសំឡេង
-                    audio_b64 = asyncio.run(get_audio_base64(sub["text"], voice_id, speed_rate))
-                    st.components.v1.html(f"""
-                        {js_code}
-                        <div style="padding:10px; border-bottom:1px solid #eee; font-family: 'Kantumruy Pro', sans-serif;">
-                            <span style="color: #ff4b4b;">⏱️ {sub['start']}ស៖</span> {sub['text']}
-                            <script>playAudioAtTime("{audio_b64}", {sub['start']});</script>
-                        </div>
-                    """, height=60)
-                st.success(f"រួចរាល់! កំពុងអានក្នុងល្បឿន {speed_rate}%")
+            st.success(f"ផលិតបាន {len(subs)} ឃ្លា។ សំឡេងនឹងចាក់អូតូតាមវិនាទីដែលអ្នកកំណត់។")
+            
+            # JavaScript សម្រាប់ចាក់អូតូតាមវិនាទី
+            js_auto_play = """
+            <script>
+            function autoPlay(b64, time) {
+                setTimeout(() => {
+                    var audio = new Audio("data:audio/mp3;base64," + b64);
+                    audio.play();
+                }, time * 1000);
+            }
+            </script>
+            """
+            st.components.v1.html(js_auto_play, height=0)
+
+            for i, sub in enumerate(subs):
+                # ផលិតសំឡេង
+                audio_bytes = asyncio.run(get_audio_data(sub["text"], voice_id, speed_rate))
+                audio_b64 = base64.b64encode(audio_bytes).decode()
+                
+                # បង្កើតប្រអប់បង្ហាញឃ្លានីមួយៗ
+                with st.container():
+                    col1, col2 = st.columns([3, 1])
+                    with col1:
+                        st.markdown(f"**⏱️ វិនាទីទី {sub['start']}**")
+                        st.write(sub["text"])
+                        # ចាក់អូតូតាមវិនាទី
+                        st.components.v1.html(f"<script>window.parent.autoPlay('{audio_b64}', {sub['start']});</script>", height=0)
+                    
+                    with col2:
+                        # ប៊ូតុងស្ដាប់ឡើងវិញ
+                        st.audio(audio_bytes, format="audio/mp3")
+                        # ប៊ូតុងទាញយក
+                        st.download_button(
+                            label="📥 Download",
+                            data=audio_bytes,
+                            file_name=f"part_{i+1}_{sub['start']}s.mp3",
+                            mime="audio/mp3",
+                            key=f"dl_{i}"
+                        )
+                    st.divider()
         else:
             st.error("ទម្រង់ SRT មិនត្រឹមត្រូវ!")
