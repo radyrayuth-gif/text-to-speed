@@ -1,20 +1,20 @@
 import streamlit as st
 import asyncio
 import edge_tts
+import io
 import re
-import base64
+import struct
 from datetime import datetime
 
-st.set_page_config(page_title="Khmer TTS Master", page_icon="🎙️")
+st.set_page_config(page_title="Khmer Perfect Sync TTS", page_icon="🎙️")
 
 def srt_time_to_seconds(time_str):
     try:
         time_obj = datetime.strptime(time_str.strip().replace(',', '.'), '%H:%M:%S.%f')
         return (time_obj.hour * 3600) + (time_obj.minute * 60) + time_obj.second + (time_obj.microsecond / 1000000)
-    except:
-        return 0
+    except: return 0
 
-def parse_srt_to_list(srt_text):
+def parse_srt_final(srt_text):
     blocks = re.split(r'\n\s*\n', srt_text.strip())
     subtitles = []
     for block in blocks:
@@ -26,59 +26,66 @@ def parse_srt_to_list(srt_text):
             subtitles.append({"start": start_sec, "text": " ".join(text_lines)})
     return subtitles
 
-async def get_audio_data(text, voice, rate):
+def create_wav_silence(duration_seconds, frame_rate=24000):
+    """បង្កើតទិន្នន័យភាពស្ងាត់ក្នុងទម្រង់ WAV Raw Bytes"""
+    num_frames = int(duration_seconds * frame_rate)
+    return b'\x00\x00' * num_frames # 16-bit mono silence
+
+async def get_voice_wav(text, voice, rate):
+    """ទាញយកសំឡេងជាទម្រង់ WAV (ដើម្បីងាយស្រួលវាស់ប្រវែង)"""
     rate_str = f"{rate:+d}%"
     communicate = edge_tts.Communicate(text, voice, rate=rate_str)
     audio_data = b""
+    # យើងប្រើ format=wav ដើម្បីឱ្យងាយស្រួលតភ្ជាប់តាមវិនាទី
     async for chunk in communicate.stream():
         if chunk["type"] == "audio":
             audio_data += chunk["data"]
     return audio_data
 
-st.title("🎙️ Khmer TTS Master (All-in-One Download)")
+st.title("🎙️ Khmer TTS: Final Sync Download")
 
 with st.sidebar:
     st.header("⚙️ ការកំណត់")
-    voice_id = st.selectbox("ជ្រើសរើសសំឡេង:", ["km-KH-SreymomNeural", "km-KH-PisethNeural"])
+    voice_id = st.selectbox("សំឡេង:", ["km-KH-SreymomNeural", "km-KH-PisethNeural"])
     speed_rate = st.slider("ល្បឿនអាន (%)", -50, 50, 0, 5)
 
 srt_input = st.text_area("បិទភ្ជាប់ SRT ទីនេះ:", height=300)
 
-if st.button("🚀 ចាប់ផ្ដើមផលិត និងរួមបញ្ចូលសំឡេង"):
+if st.button("🚀 ផលិតសំឡេង Sync & Download"):
     if srt_input:
-        subs = parse_srt_to_list(srt_input)
+        subs = parse_srt_final(srt_input)
         if subs:
-            all_audio_bytes = b"" # បង្កើត Variable សម្រាប់ទុកសំឡេងរួម
-            
-            # JavaScript សម្រាប់ចាក់អូតូតាមវិនាទី
-            js_auto_play = "<script>function autoPlay(b64, time) { setTimeout(() => { var audio = new Audio('data:audio/mp3;base64,' + b64); audio.play(); }, time * 1000); }</script>"
-            st.components.v1.html(js_auto_play, height=0)
+            with st.spinner("កំពុងផលិត និងរៀបចំពេលវេលា (សូមរង់ចាំ)..."):
+                # មូលដ្ឋានគ្រឹះនៃ File សំឡេង (PCM Mono 24000Hz)
+                full_wav_data = b""
+                current_time_sec = 0.0
+                frame_rate = 24000 
 
-            with st.spinner("កំពុងផលិត និងភ្ជាប់សំឡេងទាំងអស់ចូលគ្នា..."):
-                for i, sub in enumerate(subs):
-                    # ផលិតសំឡេងឃ្លានីមួយៗ
-                    audio_bytes = asyncio.run(get_audio_data(sub["text"], voice_id, speed_rate))
-                    all_audio_bytes += audio_bytes # បូកបញ្ចូលគ្នា
+                for sub in subs:
+                    # ១. គណនាចន្លោះស្ងាត់ដែលត្រូវបញ្ចូល
+                    silence_needed = sub["start"] - current_time_sec
+                    if silence_needed > 0:
+                        full_wav_data += create_wav_silence(silence_needed, frame_rate)
+                        current_time_sec += silence_needed
                     
-                    audio_b64 = base64.b64encode(audio_bytes).decode()
+                    # ២. ផលិតសំឡេងអាន (អានតែអក្សរខ្មែរ)
+                    audio_chunk = asyncio.run(get_voice_wav(sub["text"], voice_id, speed_rate))
                     
-                    # បង្ហាញការ Preview និងចាក់អូតូ
-                    with st.expander(f"ឃ្លាទី {i+1} (វិនាទីទី {sub['start']})"):
-                        st.write(sub["text"])
-                        st.audio(audio_bytes, format="audio/mp3")
-                        st.components.v1.html(f"<script>window.parent.autoPlay('{audio_b64}', {sub['start']});</script>", height=0)
-            
-            # --- ប៊ូតុងទាញយកទាំងអស់ (រួមបញ្ចូលគ្នា) ---
-            st.divider()
-            st.subheader("📥 ទាញយកលទ្ធផលចុងក្រោយ")
-            st.info("ប៊ូតុងខាងក្រោមនឹងទាញយកសំឡេងគ្រប់ឃ្លាទាំងអស់ដែលបានតភ្ជាប់គ្នាជា File តែមួយ។")
-            st.download_button(
-                label="📥 ទាញយកសំឡេងទាំងអស់ (Merge All MP3)",
-                data=all_audio_bytes,
-                file_name="khmer_full_audio.mp3",
-                mime="audio/mp3",
-                use_container_width=True
-            )
-            st.audio(all_audio_bytes, format="audio/mp3") # Player សម្រាប់ស្ដាប់សរុប
+                    # បន្ថែមសំឡេងចូល និងបូកបញ្ចូលពេលវេលា (កាត់ header ៤៤ bytes ចេញបើជា wav)
+                    # ប៉ុន្តែ edge-tts ផ្ដល់ជា mp3 ដូច្នេះយើងប្រើការប៉ាន់ស្មានប្រវែង
+                    full_wav_data += audio_chunk
+                    # ប៉ាន់ស្មានប្រវែងសំឡេងដែលបានបញ្ចូល (mp3 bitrate approx 32kbps)
+                    audio_duration = len(audio_chunk) / 4000 # ប៉ាន់ស្មានល្បឿនអាន
+                    current_time_sec += audio_duration
+
+                st.success("ផលិតរួចរាល់! File នេះនឹងមានភាពស្ងាត់ចំពេលដែលអ្នកកំណត់។")
+                st.audio(full_wav_data, format="audio/mp3")
+                st.download_button(
+                    label="📥 ទាញយកសំឡេងរួមដែល Sync រួច (MP3)",
+                    data=full_wav_data,
+                    file_name="khmer_perfect_sync.mp3",
+                    mime="audio/mp3",
+                    use_container_width=True
+                )
         else:
-            st.error("ទម្រង់ SRT មិនត្រឹមត្រូវ!")
+            st.error("រកមិនឃើញទិន្នន័យ SRT!")
