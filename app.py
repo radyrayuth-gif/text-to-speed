@@ -8,18 +8,18 @@ from pydub import AudioSegment
 # --- កំណត់ទំព័រ ---
 st.set_page_config(page_title="Khmer TTS Pro - លោកពូប៉ាវ", page_icon="🎙️")
 
-# ស្ទីល UI បន្ថែម
+# ស្ទីល UI ឱ្យមើលទៅស្អាត និងងាយស្រួលប្រើ
 st.markdown("""
     <style>
-    .main { background-color: #f0f2f6; }
-    .stTextArea textarea { font-size: 16px !important; border: 2px solid #28a745; }
-    .stButton>button { background-color: #28a745; color: white; border-radius: 8px; font-weight: bold; }
+    .main { background-color: #f8f9fa; }
+    .stTextArea textarea { font-size: 16px !important; border: 2px solid #2ecc71; border-radius: 10px; }
+    .stButton>button { background-color: #2ecc71; color: white; border-radius: 10px; font-weight: bold; width: 100%; height: 3em; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- មុខងារបំបែកអត្ថបទ SRT ---
+# --- មុខងារបំបែកអត្ថបទ SRT យកតែ Start Time ---
 def parse_srt(srt_text):
-    # ចាប់យកលេខរៀង ម៉ោងចាប់ផ្តើម និងអត្ថបទ
+    # Pattern សម្រាប់ចាប់យកលេខរៀង ម៉ោងចាប់ផ្តើម និងអត្ថបទ
     pattern = r"(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n(.*?)(?=\n\n|\n$|$)"
     matches = re.findall(pattern, srt_text, re.DOTALL)
     
@@ -36,19 +36,22 @@ def parse_srt(srt_text):
         })
     return subtitles
 
-# --- មុខងារផលិតសំឡេង (បច្ចេកទេស Overlap) ---
+# --- មុខងារផលិតសំឡេងតាមលំដាប់ម៉ោង (Strict Position) ---
 async def generate_audio(srt_text, voice, rate, pitch):
     subs = parse_srt(srt_text)
-    
-    # បង្កើតខ្សែសំឡេងមេមួយ (Silence) ដែលមានរយៈពេលវែងគ្រាន់
-    # យើងប្រើ overlay ដើម្បីដាក់សំឡេងចូលទៅតាមម៉ោងជាក់លាក់
-    final_combined = AudioSegment.silent(duration=0)
+    if not subs:
+        return None
+
+    # ១. បង្កើត Timeline ស្ងាត់មួយជាមុនសិន ដែលមានរយៈពេលវែងល្មម
+    # យើងយកម៉ោងចាប់ផ្តើមចុងក្រោយ + ១០ វិនាទី ដើម្បីការពារការដាច់កន្ទុយ
+    total_duration_ms = subs[-1]['start_ms'] + 10000 
+    final_combined = AudioSegment.silent(duration=total_duration_ms)
     
     rate_str = f"{rate:+d}%"
     pitch_str = f"{pitch:+d}Hz"
 
     for sub in subs:
-        # ១. បង្កើតសំឡេង AI សម្រាប់ឃ្លានីមួយៗ
+        # ២. បង្កើតសំឡេង AI សម្រាប់ឃ្លានីមួយៗ
         communicate = edge_tts.Communicate(sub['text'], voice, rate=rate_str, pitch=pitch_str)
         audio_data = b""
         async for chunk in communicate.stream():
@@ -57,23 +60,21 @@ async def generate_audio(srt_text, voice, rate, pitch):
         
         segment = AudioSegment.from_file(io.BytesIO(audio_data), format="mp3")
         
-        # ២. កំណត់ទីតាំងសម្រាប់ឃ្លានេះ
-        # បង្កើត Silence រហូតដល់ដល់ម៉ោងចាប់ផ្តើម រួចទើបបូកសំឡេងឃ្លានោះចូល
-        start_at_ms = sub['start_ms']
-        entry_with_start_delay = AudioSegment.silent(duration=start_at_ms) + segment
-        
-        # ៣. ប្រើ Overlay ដើម្បីឱ្យសំឡេងអាចជាន់គ្នាបាន
-        # វានឹងចាប់ផ្តើមចំពេលដែលកំណត់ ទោះបីឃ្លាមុនអានមិនទាន់ចប់ក៏ដោយ
-        final_combined = final_combined.overlay(entry_with_start_delay)
+        # ៣. ដាក់សំឡេងចូលក្នុង Timeline តាមទីតាំងម៉ោង (Position) ច្បាស់លាស់
+        # វិធីនេះនឹងធ្វើឱ្យវានិយាយចំពេល Start Time ជានិច្ច ទោះបីជាឃ្លាមុនអានជាន់គ្នាក៏ដោយ
+        final_combined = final_combined.overlay(segment, position=sub['start_ms'])
 
-    # បញ្ជូនឯកសារចេញ
+    # កាត់ផ្នែកស្ងាត់ដែលនៅសល់កន្ទុយចោល ដើម្បីឱ្យ File តូចល្មម
+    # រកមើលកន្លែងដែលសំឡេងចប់ពិតប្រាកដ
+    final_combined = final_combined.strip_silence(silence_thresh=-50, padding=100)
+
     buffer = io.BytesIO()
     final_combined.export(buffer, format="mp3")
     return buffer.getvalue()
 
 # --- ចំណុចប្រទាក់អ្នកប្រើ (UI) ---
-st.title("🎙️ Khmer SRT Audio (Strict Start & Overlap)")
-st.write("ជំនាន់ពិសេស៖ ចាប់ផ្តើមចំពេលកំណត់ និងអាចអានជាន់គ្នាបាន")
+st.title("🎙️ Khmer SRT Audio (Strict Sync V3)")
+st.write("ជំនាន់កែសម្រួល៖ បង្ខំឱ្យអានចំម៉ោង Start Time ១០០%")
 
 col1, col2 = st.columns([1, 2])
 
@@ -92,13 +93,17 @@ srt_input = st.text_area("បញ្ចូលទម្រង់ SRT នៅទី�
 
 if st.button("🔊 ចាប់ផ្តើមផលិតសំឡេង"):
     if srt_input.strip():
-        with st.spinner("កំពុងរៀបចំ Timeline ឱ្យចំវិនាទី..."):
+        with st.spinner("កំពុងគណនាម៉ោង និងបញ្ចូលសំឡេង..."):
             try:
                 final_audio = asyncio.run(generate_audio(srt_input, voice_id, speed, pitch))
-                st.audio(final_audio, format="audio/mp3")
-                st.download_button("📥 ទាញយក MP3", final_audio, "khmer_strict_sync.mp3")
-                st.success("ផលិតជោគជ័យ! សំឡេងនីមួយៗចាប់ផ្តើមចំពេលកំណត់ក្នុង SRT។")
+                if final_audio:
+                    st.audio(final_audio, format="audio/mp3")
+                    st.download_button("📥 ទាញយក MP3", final_audio, "khmer_strict_sync.mp3")
+                    st.success("ផលិតជោគជ័យ! សំឡេងនីមួយៗចាប់ផ្តើមចំពេលដែលបានកំណត់។")
+                else:
+                    st.error("ទម្រង់ SRT មិនត្រឹមត្រូវ!")
             except Exception as e:
                 st.error(f"បញ្ហា៖ {e}")
     else:
         st.warning("សូមបញ្ចូលអត្ថបទ SRT ជាមុនសិន!")
+
