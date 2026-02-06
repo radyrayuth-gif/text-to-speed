@@ -5,20 +5,21 @@ import re
 import io
 from pydub import AudioSegment
 
-# --- កំណត់ទំព័រ និងស្ទីល ---
+# --- កំណត់ទំព័រ ---
 st.set_page_config(page_title="Khmer TTS Pro - លោកពូប៉ាវ", page_icon="🎙️")
 
+# ស្ទីល UI បន្ថែម
 st.markdown("""
     <style>
-    .main { background-color: #f5f7f9; }
-    .stTextArea textarea { font-size: 16px !important; border-radius: 10px; border: 1px solid #28a745; }
-    .stButton>button { width: 100%; border-radius: 10px; background-color: #28a745; color: white; font-weight: bold; height: 3em; }
+    .main { background-color: #f0f2f6; }
+    .stTextArea textarea { font-size: 16px !important; border: 2px solid #28a745; }
+    .stButton>button { background-color: #28a745; color: white; border-radius: 8px; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
 # --- មុខងារបំបែកអត្ថបទ SRT ---
 def parse_srt(srt_text):
-    # ចាប់យកលេខរៀង ម៉ោង និងអត្ថបទ
+    # ចាប់យកលេខរៀង ម៉ោងចាប់ផ្តើម និងអត្ថបទ
     pattern = r"(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n(.*?)(?=\n\n|\n$|$)"
     matches = re.findall(pattern, srt_text, re.DOTALL)
     
@@ -35,29 +36,19 @@ def parse_srt(srt_text):
         })
     return subtitles
 
-# --- មុខងារផលិតសំឡេង ---
+# --- មុខងារផលិតសំឡេង (បច្ចេកទេស Overlap) ---
 async def generate_audio(srt_text, voice, rate, pitch):
     subs = parse_srt(srt_text)
-    combined_audio = AudioSegment.empty()
-    current_ms = 0 # ម៉ោងបច្ចុប្បន្ននៃខ្សែសំឡេង
+    
+    # បង្កើតខ្សែសំឡេងមេមួយ (Silence) ដែលមានរយៈពេលវែងគ្រាន់
+    # យើងប្រើ overlay ដើម្បីដាក់សំឡេងចូលទៅតាមម៉ោងជាក់លាក់
+    final_combined = AudioSegment.silent(duration=0)
     
     rate_str = f"{rate:+d}%"
     pitch_str = f"{pitch:+d}Hz"
 
     for sub in subs:
-        # ១. គណនាចន្លោះស្ងាត់ដើម្បីឱ្យចាប់ផ្តើមចំពេលកំណត់
-        wait_time = sub['start_ms'] - current_ms
-        
-        if wait_time > 0:
-            # បន្ថែមចន្លោះស្ងាត់រហូតដល់ដល់ម៉ោងត្រូវអាន
-            combined_audio += AudioSegment.silent(duration=wait_time)
-            current_ms += wait_time
-        else:
-            # បើ AI អានឃ្លាមុនយឺត ហួសម៉ោងឃ្លាបន្ទាប់ យើងថែមចន្លោះដកដង្ហើមបន្តិច (200ms)
-            combined_audio += AudioSegment.silent(duration=200)
-            current_ms += 200
-
-        # ២. បង្កើតសំឡេងពី Edge-TTS
+        # ១. បង្កើតសំឡេង AI សម្រាប់ឃ្លានីមួយៗ
         communicate = edge_tts.Communicate(sub['text'], voice, rate=rate_str, pitch=pitch_str)
         audio_data = b""
         async for chunk in communicate.stream():
@@ -66,18 +57,23 @@ async def generate_audio(srt_text, voice, rate, pitch):
         
         segment = AudioSegment.from_file(io.BytesIO(audio_data), format="mp3")
         
-        # ៣. បញ្ចូលសំឡេងចូលក្នុងខ្សែអាត់ (អានចប់តាមធម្មជាតិ)
-        combined_audio += segment
-        current_ms += len(segment)
+        # ២. កំណត់ទីតាំងសម្រាប់ឃ្លានេះ
+        # បង្កើត Silence រហូតដល់ដល់ម៉ោងចាប់ផ្តើម រួចទើបបូកសំឡេងឃ្លានោះចូល
+        start_at_ms = sub['start_ms']
+        entry_with_start_delay = AudioSegment.silent(duration=start_at_ms) + segment
+        
+        # ៣. ប្រើ Overlay ដើម្បីឱ្យសំឡេងអាចជាន់គ្នាបាន
+        # វានឹងចាប់ផ្តើមចំពេលដែលកំណត់ ទោះបីឃ្លាមុនអានមិនទាន់ចប់ក៏ដោយ
+        final_combined = final_combined.overlay(entry_with_start_delay)
 
-    # បញ្ជូនឯកសារចេញជា Bytes
+    # បញ្ជូនឯកសារចេញ
     buffer = io.BytesIO()
-    combined_audio.export(buffer, format="mp3")
+    final_combined.export(buffer, format="mp3")
     return buffer.getvalue()
 
 # --- ចំណុចប្រទាក់អ្នកប្រើ (UI) ---
-st.title("🎙️ Khmer SRT Audio Dubbing (V2)")
-st.write("ជំនាន់៖ ចាប់ផ្តើមចំពេល និងអានចប់តាមធម្មជាតិ")
+st.title("🎙️ Khmer SRT Audio (Strict Start & Overlap)")
+st.write("ជំនាន់ពិសេស៖ ចាប់ផ្តើមចំពេលកំណត់ និងអាចអានជាន់គ្នាបាន")
 
 col1, col2 = st.columns([1, 2])
 
@@ -96,14 +92,13 @@ srt_input = st.text_area("បញ្ចូលទម្រង់ SRT នៅទី�
 
 if st.button("🔊 ចាប់ផ្តើមផលិតសំឡេង"):
     if srt_input.strip():
-        with st.spinner("កំពុងរៀបចំតាមកាលវិភាគ..."):
+        with st.spinner("កំពុងរៀបចំ Timeline ឱ្យចំវិនាទី..."):
             try:
                 final_audio = asyncio.run(generate_audio(srt_input, voice_id, speed, pitch))
                 st.audio(final_audio, format="audio/mp3")
-                st.download_button("📥 ទាញយក MP3", final_audio, "khmer_audio_sync.mp3")
-                st.success("ផលិតរួចរាល់! សំឡេងនឹងចាប់ផ្តើមតាមម៉ោងក្នុង SRT របស់អ្នក។")
+                st.download_button("📥 ទាញយក MP3", final_audio, "khmer_strict_sync.mp3")
+                st.success("ផលិតជោគជ័យ! សំឡេងនីមួយៗចាប់ផ្តើមចំពេលកំណត់ក្នុង SRT។")
             except Exception as e:
                 st.error(f"បញ្ហា៖ {e}")
-                st.info("ប្រសិនបើឃើញ Error 'ffprobe' សូមប្រាកដថាបានដាក់ 'ffmpeg' ក្នុង packages.txt រួច Reboot App។")
     else:
         st.warning("សូមបញ្ចូលអត្ថបទ SRT ជាមុនសិន!")
