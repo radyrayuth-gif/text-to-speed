@@ -6,19 +6,22 @@ import io
 from pydub import AudioSegment
 
 # --- កំណត់ទំព័រ ---
-st.set_page_config(page_title="Khmer TTS Smart Sync", page_icon="🎙️")
+st.set_page_config(page_title="Khmer TTS Precision Sync", page_icon="🎙️")
 
 def parse_srt(srt_text):
+    # ចាប់យក៖ លេខរៀង, ម៉ោងចាប់ផ្តើម, ម៉ោងបញ្ចប់, និង អត្ថបទ
     pattern = r"(\d+)\n(\d{2}:\d{2}:\d{2},\d{3}) --> (\d{2}:\d{2}:\d{2},\d{3})\n(.*?)(?=\n\n|\n$|$)"
     matches = re.findall(pattern, srt_text, re.DOTALL)
     subtitles = []
+    
     def to_ms(time_str):
         h, m, s = time_str.replace(',', '.').split(':')
         return int(h)*3600000 + int(m)*60000 + float(s)*1000
+
     for match in matches:
         subtitles.append({
             "start_ms": to_ms(match[1]),
-            "end_ms": to_ms(match[2]), # ប្រើសម្រាប់ប៉ាន់ស្មានម៉ោងបញ្ចប់
+            "end_ms": to_ms(match[2]),
             "text": match[3].strip()
         })
     return subtitles
@@ -27,62 +30,73 @@ async def generate_audio(srt_text, voice, rate, pitch):
     subs = parse_srt(srt_text)
     if not subs: return None
 
-    total_duration_ms = subs[-1]['start_ms'] + 10000 
-    final_combined = AudioSegment.silent(duration=total_duration_ms)
+    # បង្កើត Timeline ស្ងាត់មួយដែលមានប្រវែងស្មើនឹងម៉ោងបញ្ចប់ចុងក្រោយ + ៥ វិនាទី
+    total_len = subs[-1]['end_ms'] + 5000
+    final_audio = AudioSegment.silent(duration=total_len)
     
     rate_str = f"{rate:+d}%"
     pitch_str = f"{pitch:+d}Hz"
 
-    for i in range(len(subs)):
-        sub = subs[i]
-        
+    for i, sub in enumerate(subs):
         # ១. បង្កើតសំឡេង AI ដើម
         communicate = edge_tts.Communicate(sub['text'], voice, rate=rate_str, pitch=pitch_str)
         audio_data = b""
         async for chunk in communicate.stream():
-            if chunk["type"] == "audio": audio_data += chunk["data"]
+            if chunk["type"] == "audio":
+                audio_data += chunk["data"]
         
         segment = AudioSegment.from_file(io.BytesIO(audio_data), format="mp3")
         
-        # ២. ពិនិត្យមើលការជាន់គ្នា (Overlap Detection)
-        # បើមិនមែនជាឃ្លាចុងក្រោយ យើងមើលម៉ោងចាប់ផ្តើមនៃឃ្លាបន្ទាប់
+        # ២. គណនារយៈពេលដែលមាន (Available Gap)
+        # បើមានឃ្លាបន្ទាប់ យើងត្រូវអានឱ្យចប់មុនឃ្លានោះចាប់ផ្តើម
         if i < len(subs) - 1:
             next_start_ms = subs[i+1]['start_ms']
-            available_duration = next_start_ms - sub['start_ms']
-            actual_duration = len(segment)
-            
-            # បើអានវែងជាងម៉ោងដែលត្រូវចាប់ផ្តើមឃ្លាបន្ទាប់ (ជាន់គ្នា)
-            if actual_duration > available_duration and available_duration > 0:
-                speed_factor = actual_duration / available_duration
-                # ពន្លឿនសំឡេងតែឃ្លានេះឱ្យចប់ទាន់ពេល
-                segment = segment.speedup(playback_speed=speed_factor)
-        
-        # ៣. ដាក់ចូល Timeline
-        final_combined = final_combined.overlay(segment, position=sub['start_ms'])
+            available_ms = next_start_ms - sub['start_ms']
+        else:
+            # ឃ្លាចុងក្រោយ ទុកឱ្យវាអានតាមធម្មជាតិ
+            available_ms = len(segment)
 
-    # កាត់ផ្នែកស្ងាត់កន្ទុយចោល
-    final_combined = final_combined.strip_silence(silence_thresh=-50, padding=100)
-    
+        # ៣. ពិនិត្យថាជាន់គ្នាឬអត់? បើជាន់គ្នា ត្រូវពន្លឿន (Speedup)
+        # យើងថែមលក្ខខណ្ឌ available_ms > 0 ដើម្បីការពារ Error
+        if len(segment) > available_ms and available_ms > 0:
+            speed_ratio = len(segment) / available_ms
+            # ពន្លឿនតែឃ្លាណាដែលវែងពេក
+            segment = segment.speedup(playback_speed=speed_ratio)
+        
+        # ៤. បញ្ចូលទៅក្នុង Timeline ចំ Start Time នៃ SRT បន្ទាត់នីមួយៗ
+        # ការប្រើ position គឺជានាឡិកាវាស់ម៉ោងដែលសុក្រិតបំផុត
+        final_audio = final_audio.overlay(segment, position=sub['start_ms'])
+
+    # កាត់ផ្នែកស្ងាត់ចោលវិញក្រោយពេលផលិតរួច
+    final_audio = final_audio.strip_silence(silence_thresh=-50, padding=100)
+
     buffer = io.BytesIO()
-    final_combined.export(buffer, format="mp3")
+    final_audio.export(buffer, format="mp3")
     return buffer.getvalue()
 
-# --- UI ---
-st.title("🎙️ Khmer TTS Smart Speed Sync")
-st.info("💡 ឃ្លាណាដែលអានជាន់គ្នា នឹងត្រូវបានពន្លឿនដោយស្វ័យប្រវត្តិឱ្យចប់ទាន់ពេល។")
+# --- ចំណុចប្រទាក់អ្នកប្រើ (UI) ---
+st.title("🎙️ Khmer TTS Smart Precision Sync")
+st.markdown("---")
 
-voice_choice = st.selectbox("ជ្រើសរើសអ្នកអាន:", ["km-KH-SreymomNeural", "km-KH-PisethNeural"])
-speed_val = st.slider("ល្បឿនមូលដ្ឋាន (%):", -50, 50, 0, 5)
-pitch_val = st.slider("កម្រិតសំឡេង (Hz):", -20, 20, 0, 1)
-srt_input = st.text_area("បញ្ចូល SRT:", height=250)
+col1, col2 = st.columns(2)
+with col1:
+    voice = st.selectbox("សំឡេង:", ["km-KH-SreymomNeural", "km-KH-PisethNeural"])
+    speed = st.slider("ល្បឿនមូលដ្ឋាន:", -50, 50, 0)
+with col2:
+    pitch = st.slider("កម្រិតសំឡេង:", -20, 20, 0)
+    
+srt_input = st.text_area("បញ្ចូល SRT របស់អ្នកនៅទីនេះ:", height=300)
 
-if st.button("🔊 ផលិតសំឡេង"):
-    if srt_input.strip():
-        with st.spinner("កំពុងគណនា និងកែតម្រូវល្បឿន..."):
+if st.button("🔊 ចាប់ផ្តើមផលិតសំឡេង"):
+    if srt_input:
+        with st.spinner("កំពុងគណនាម៉ោងឱ្យត្រូវចំវិនាទី..."):
             try:
-                final_audio = asyncio.run(generate_audio(srt_input, voice_choice, speed_val, pitch_val))
-                st.audio(final_audio)
-                st.download_button("📥 ទាញយក MP3", final_audio, "smart_sync.mp3")
+                result = asyncio.run(generate_audio(srt_input, voice, speed, pitch))
+                if result:
+                    st.audio(result)
+                    st.download_button("📥 ទាញយក MP3", result, "final_sync_audio.mp3")
+                    st.success("ផលិតរួចរាល់! សំឡេងនឹងចាប់ផ្តើមត្រូវចំម៉ោង Start Time ជានិច្ច។")
             except Exception as e:
-                st.error(f"បញ្ហា៖ {e}")
-                
+                st.error(f"Error: {e}")
+    else:
+        st.warning("សូមបញ្ចូល SRT ជាមុន!")
