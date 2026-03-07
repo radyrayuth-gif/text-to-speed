@@ -7,66 +7,66 @@ st.set_page_config(page_title="SRT Chinese to Khmer Translator", layout="wide")
 st.title("🏯 ឧបករណ៍បកប្រែរឿងភាគចិនទៅខ្មែរ")
 st.markdown("---")
 
-# ២. ផ្នែក Sidebar សម្រាប់បញ្ចូល API Key
+# ២. ផ្នែក Sidebar
 st.sidebar.header("ការកំណត់")
 api_key = st.sidebar.text_input("បញ្ចូល Gemini API Key:", type="password")
-st.sidebar.info("អ្នកអាចយក API Key បានពី: [Google AI Studio](https://aistudio.google.com/)")
+# ឱ្យអ្នកប្រើជ្រើសរើស Model ដើម្បីការពារ Error
+model_choice = st.sidebar.selectbox("ជ្រើសរើសម៉ូដែល AI:", ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"])
 
-# ៣. មុខងារចម្បងសម្រាប់ការបកប្រែ
-def translate_srt(text, api_key):
-    # កំណត់រចនាសម្ព័ន្ធ API
+st.sidebar.info("យក API Key ពី: [Google AI Studio](https://aistudio.google.com/)")
+
+# ៣. មុខងារបកប្រែ
+def translate_srt(text, api_key, model_name):
     genai.configure(api_key=api_key)
     
-    # ប្រើម៉ូដែល gemini-1.5-flash ដែលមានល្បឿនលឿន និងយល់ Context បានល្អ
-    model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+    # បង្កើតម៉ូដែលតាមការជ្រើសរើស
+    model = genai.GenerativeModel(model_name=model_name)
     
-    # បង្កើត Prompt ដើម្បីបញ្ជា AI ឲ្យបកប្រែចំគោលដៅ
     prompt = f"""
-    You are an expert Chinese-to-Khmer translator specializing in movie subtitles.
-    Task: Translate the following SRT content into natural, emotional, and grammatically correct Khmer.
+    You are a professional movie subtitle translator. 
+    Translate the following Chinese SRT content into natural Khmer.
     
-    Strict Rules:
-    1. Keep all subtitle numbers and timestamps (e.g., 00:00:01,400 --> 00:00:02,740) exactly as they are.
-    2. Do not add any introductory text, only provide the translated SRT content.
-    3. Translate the meaning naturally for a movie context, not word-for-word.
+    Rules:
+    1. Do NOT change the timestamps or subtitle numbers.
+    2. Make the Khmer translation sound like a real movie dialogue.
+    3. Output ONLY the translated SRT.
     
-    SRT Content to translate:
+    Text:
     {text}
     """
     
     response = model.generate_content(prompt)
     return response.text
 
-# ៤. រចនាសម្ព័ន្ធផ្ទៃកម្មវិធី (UI)
+# ៤. រចនាសម្ព័ន្ធ UI
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("📥 អត្ថបទចិន (Original)")
-    input_text = st.text_area("ចម្លងអត្ថបទ SRT ដាក់ទីនេះ...", height=400)
+    st.subheader("📥 អត្ថបទចិន (SRT)")
+    input_text = st.text_area("ចម្លងអត្ថបទដាក់ទីនេះ...", height=400, key="input")
 
 with col2:
-    st.subheader("📤 លទ្ធផលជាភាសាខ្មែរ (Translated)")
-    if st.button("ចាប់ផ្តើមបកប្រែឥឡូវនេះ"):
+    st.subheader("📤 លទ្ធផលជាភាសាខ្មែរ")
+    if st.button("ចាប់ផ្តើមបកប្រែ"):
         if not api_key:
-            st.error("សូមបញ្ចូល API Key ជាមុនសិន!")
+            st.error("សូមបញ្ចូល API Key!")
         elif not input_text.strip():
-            st.warning("សូមបញ្ចូលអត្ថបទចិនដែលត្រូវបកប្រែ!")
+            st.warning("សូមបញ្ចូលអត្ថបទ!")
         else:
             try:
-                with st.spinner("កំពុងបកប្រែ... សូមរង់ចាំមួយភ្លែត"):
-                    translated_result = translate_srt(input_text, api_key)
-                    st.text_area("លទ្ធផល:", value=translated_result, height=355)
+                with st.spinner(f"កំពុងប្រើ {model_choice} ដើម្បីបកប្រែ..."):
+                    result = translate_srt(input_text, api_key, model_choice)
+                    st.text_area("លទ្ធផល:", value=result, height=350)
                     
-                    # ប៊ូតុងទាញយកឯកសារ
                     st.download_button(
-                        label="ទាញយកឯកសារបកប្រែ (.srt)",
-                        data=translated_result,
-                        file_name="khmer_subtitle.srt",
+                        label="ទាញយក File .srt",
+                        data=result,
+                        file_name="translated_khmer.srt",
                         mime="text/plain"
                     )
-                    st.success("ការបកប្រែបានជោគជ័យ!")
             except Exception as e:
-                st.error(f"កើតមានបញ្ហា: {str(e)}")
+                st.error(f"កំហុសបច្ចេកទេស៖ {str(e)}")
+                st.info("បើសិនជា Error 404 សូមសាកល្បងប្តូរទៅប្រើម៉ូដែល 'gemini-pro' ក្នុង Sidebar។")
 
 st.markdown("---")
-st.caption("អភិវឌ្ឍន៍ដោយប្រើ Streamlit និង Gemini 1.5 Flash API")
+st.caption("អភិវឌ្ឍន៍ដោយប្រើ Streamlit និង Gemini API")
