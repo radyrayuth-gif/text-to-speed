@@ -1,26 +1,23 @@
 import streamlit as st
 import google.generativeai as genai
-from google.generativeai.types import RequestOptions
 
-# កំណត់ទម្រង់ Website
+# កំណត់រូបរាង Website
 st.set_page_config(page_title="SRT Chinese-Khmer Translator", layout="wide")
 st.title("🏯 ឧបករណ៍បកប្រែ Subtitle ចិន-ខ្មែរ")
 st.markdown("---")
 
-# ផ្នែក Sidebar
+# ផ្នែក Sidebar សម្រាប់បញ្ចូល API Key
 st.sidebar.header("⚙️ ការកំណត់")
 api_key = st.sidebar.text_input("បញ្ចូល Gemini API Key:", type="password")
 
-def translate_srt_stable(text, key):
-    # កំណត់ Configuration
+# មុខងារបកប្រែ
+def translate_srt(text, key):
+    # កំណត់ការប្រើប្រាស់ API
     genai.configure(api_key=key)
     
-    # បង្កើត Model ដោយបង្ខំឱ្យប្រើ API Version 'v1' (Stable) ដើម្បីជៀសវាង Error 404 លើ v1beta
-    model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash"
-    )
+    # ហៅប្រើម៉ូដែល Gemini 1.5 Flash
+    model = genai.GenerativeModel("gemini-1.5-flash")
     
-    # បង្កើត Prompt
     prompt = f"""
     Translate the following Chinese SRT content into natural Khmer. 
     Keep timestamps and subtitle numbers exactly as they are.
@@ -29,11 +26,7 @@ def translate_srt_stable(text, key):
     {text}
     """
     
-    # បញ្ជូន Request ដោយកំណត់ Options ឱ្យប្រើប្រាស់ API version v1 ជាដាច់ខាត
-    response = model.generate_content(
-        prompt,
-        options=RequestOptions(api_version="v1")
-    )
+    response = model.generate_content(prompt)
     return response.text
 
 # ផ្ទៃកម្មវិធី
@@ -52,13 +45,13 @@ with col2:
             st.warning("សូមបញ្ចូលអត្ថបទ!")
         else:
             try:
-                with st.spinner("កំពុងបកប្រែតាមរយៈ Stable API..."):
-                    translated_text = translate_srt_stable(input_data, api_key)
+                with st.spinner("កំពុងបកប្រែ..."):
+                    translated_text = translate_srt(input_data, api_key)
                     st.text_area("លទ្ធផល៖", value=translated_text, height=355)
                     st.success("ការបកប្រែបានជោគជ័យ!")
             except Exception as e:
                 st.error(f"បញ្ហាបច្ចេកទេស៖ {str(e)}")
-                st.info("បើសិនជានៅតែ Error សូមសាកល្បងចុច 'Manage app' ក្នុង Streamlit រួចជ្រើសរើស 'Reboot App'។")
+                st.info("ប្រសិនបើឃើញ Error 404 សូមប្រាកដថាអ្នកបាន Update requirements.txt រួចរាល់។")
 
 st.markdown("---")
-st.caption("អភិវឌ្ឍន៍ដោយប្រើ Streamlit និង Gemini 1.5 Flash Stable API")
+st.caption("អភិវឌ្ឍន៍ដោយប្រើ Streamlit និង Gemini 1.5 Flash")
