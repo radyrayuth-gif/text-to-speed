@@ -1,7 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 
-# កំណត់រូបរាង Website
+# ការកំណត់រូបរាង Website
 st.set_page_config(page_title="SRT Chinese-Khmer Translator", layout="wide")
 st.title("🏯 ឧបករណ៍បកប្រែ Subtitle ចិន-ខ្មែរ")
 st.markdown("---")
@@ -12,15 +12,15 @@ api_key = st.sidebar.text_input("បញ្ចូល Gemini API Key:", type="pass
 
 # មុខងារបកប្រែ
 def translate_srt(text, key):
-    # កំណត់ការប្រើប្រាស់ API
     genai.configure(api_key=key)
     
-    # ហៅប្រើម៉ូដែល Gemini 1.5 Flash
+    # ហៅប្រើម៉ូដែល Gemini 1.5 Flash តាមរបៀបសាមញ្ញបំផុត
     model = genai.GenerativeModel("gemini-1.5-flash")
     
     prompt = f"""
-    Translate the following Chinese SRT content into natural Khmer. 
-    Keep timestamps and subtitle numbers exactly as they are.
+    You are a professional translator. Translate the following Chinese SRT subtitles into natural Khmer. 
+    Keep all timestamps (e.g., 00:00:01,000 --> 00:00:02,000) and subtitle numbers exactly as they are.
+    Only provide the translated content in SRT format.
     
     Content:
     {text}
@@ -51,7 +51,7 @@ with col2:
                     st.success("ការបកប្រែបានជោគជ័យ!")
             except Exception as e:
                 st.error(f"បញ្ហាបច្ចេកទេស៖ {str(e)}")
-                st.info("ប្រសិនបើឃើញ Error 404 សូមប្រាកដថាអ្នកបាន Update requirements.txt រួចរាល់។")
+                st.info("ប្រសិនបើឃើញ Error 404 ម្តងទៀត សូមប្រាកដថាអ្នកបាន Update requirements.txt រួចរាល់។")
 
 st.markdown("---")
-st.caption("អភិវឌ្ឍន៍ដោយប្រើ Streamlit និង Gemini 1.5 Flash")
+st.caption("អភិវឌ្ឍន៍ដោយប្រើ Streamlit និង Gemini 1.5 Flash API")
