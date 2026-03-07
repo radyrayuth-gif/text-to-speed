@@ -1,7 +1,7 @@
 import streamlit as st
 import google.generativeai as genai
 
-# ការកំណត់រូបរាង Website
+# កំណត់រូបរាង Website
 st.set_page_config(page_title="SRT Chinese-Khmer Translator", layout="wide")
 st.title("🏯 ឧបករណ៍បកប្រែ Subtitle ចិន-ខ្មែរ")
 st.markdown("---")
@@ -14,7 +14,7 @@ api_key = st.sidebar.text_input("បញ្ចូល Gemini API Key:", type="pass
 def translate_srt(text, key):
     genai.configure(api_key=key)
     
-    # ហៅប្រើម៉ូដែល Gemini 1.5 Flash តាមរបៀបសាមញ្ញបំផុត
+    # ហៅប្រើម៉ូដែល Gemini 1.5 Flash តាមរបៀបសាមញ្ញ
     model = genai.GenerativeModel("gemini-1.5-flash")
     
     prompt = f"""
