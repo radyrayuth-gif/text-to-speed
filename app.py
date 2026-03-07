@@ -1,51 +1,72 @@
 import streamlit as st
 import google.generativeai as genai
-import re
 
-# ការកំណត់រូបរាង Website
-st.set_page_config(page_title="SRT Chinese to Khmer Translator", layout="centered")
-st.title("🏯 ឧបករណ៍បកប្រែរឿងភាគចិន (SRT)")
-st.subheader("បកប្រែដោយប្រើ Gemini AI")
+# ១. ការកំណត់ទំព័រ Website
+st.set_page_config(page_title="SRT Chinese to Khmer Translator", layout="wide")
 
-# កន្លែងដាក់ API Key
-api_key = st.sidebar.text_input("បញ្ចូល Gemini API Key របស់អ្នក:", type="password")
+st.title("🏯 ឧបករណ៍បកប្រែរឿងភាគចិនទៅខ្មែរ")
+st.markdown("---")
 
-if api_key:
+# ២. ផ្នែក Sidebar សម្រាប់បញ្ចូល API Key
+st.sidebar.header("ការកំណត់")
+api_key = st.sidebar.text_input("បញ្ចូល Gemini API Key:", type="password")
+st.sidebar.info("អ្នកអាចយក API Key បានពី: [Google AI Studio](https://aistudio.google.com/)")
+
+# ៣. មុខងារចម្បងសម្រាប់ការបកប្រែ
+def translate_srt(text, api_key):
+    # កំណត់រចនាសម្ព័ន្ធ API
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    
+    # ប្រើម៉ូដែល gemini-1.5-flash ដែលមានល្បឿនលឿន និងយល់ Context បានល្អ
+    model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+    
+    # បង្កើត Prompt ដើម្បីបញ្ជា AI ឲ្យបកប្រែចំគោលដៅ
+    prompt = f"""
+    You are an expert Chinese-to-Khmer translator specializing in movie subtitles.
+    Task: Translate the following SRT content into natural, emotional, and grammatically correct Khmer.
+    
+    Strict Rules:
+    1. Keep all subtitle numbers and timestamps (e.g., 00:00:01,400 --> 00:00:02,740) exactly as they are.
+    2. Do not add any introductory text, only provide the translated SRT content.
+    3. Translate the meaning naturally for a movie context, not word-for-word.
+    
+    SRT Content to translate:
+    {text}
+    """
+    
+    response = model.generate_content(prompt)
+    return response.text
 
-    # កន្លែងបញ្ចូលអត្ថបទ
-    source_text = st.text_area("បញ្ចូលអត្ថបទចិន (ទម្រង់ SRT):", height=300, placeholder="1\n00:00:00,000 --> ...")
+# ៤. រចនាសម្ព័ន្ធផ្ទៃកម្មវិធី (UI)
+col1, col2 = st.columns(2)
 
-    if st.button("ចាប់ផ្តើមបកប្រែ"):
-        if source_text.strip() == "":
-            st.warning("សូមបញ្ចូលអត្ថបទជាមុនសិន!")
+with col1:
+    st.subheader("📥 អត្ថបទចិន (Original)")
+    input_text = st.text_area("ចម្លងអត្ថបទ SRT ដាក់ទីនេះ...", height=400)
+
+with col2:
+    st.subheader("📤 លទ្ធផលជាភាសាខ្មែរ (Translated)")
+    if st.button("ចាប់ផ្តើមបកប្រែឥឡូវនេះ"):
+        if not api_key:
+            st.error("សូមបញ្ចូល API Key ជាមុនសិន!")
+        elif not input_text.strip():
+            st.warning("សូមបញ្ចូលអត្ថបទចិនដែលត្រូវបកប្រែ!")
         else:
             try:
-                with st.spinner('កំពុងបកប្រែ... សូមរង់ចាំ'):
-                    # បង្កើត Prompt ដើម្បីប្រាប់ AI ឲ្យរក្សាទម្រង់លេខរៀង និងម៉ោង
-                    prompt = f"""
-                    You are a professional translator. Translate the following Chinese SRT subtitles into Khmer.
-                    Keep the subtitle numbers and timestamps exactly as they are. 
-                    Ensure the Khmer translation is natural for storytelling/movies.
+                with st.spinner("កំពុងបកប្រែ... សូមរង់ចាំមួយភ្លែត"):
+                    translated_result = translate_srt(input_text, api_key)
+                    st.text_area("លទ្ធផល:", value=translated_result, height=355)
                     
-                    Text to translate:
-                    {source_text}
-                    """
-                    
-                    response = model.generate_content(prompt)
-                    
-                    st.success("ការបកប្រែរួចរាល់!")
-                    st.text_area("លទ្ធផលជាភាសាខ្មែរ:", value=response.text, height=300)
-                    
-                    # ប៊ូតុងទាញយក
+                    # ប៊ូតុងទាញយកឯកសារ
                     st.download_button(
-                        label="ទាញយកឯកសារ .srt",
-                        data=response.text,
-                        file_name="translated_khmer.srt",
+                        label="ទាញយកឯកសារបកប្រែ (.srt)",
+                        data=translated_result,
+                        file_name="khmer_subtitle.srt",
                         mime="text/plain"
                     )
+                    st.success("ការបកប្រែបានជោគជ័យ!")
             except Exception as e:
-                st.error(f"មានបញ្ហាបច្ចេកទេស៖ {e}")
-else:
-    st.info("សូមបញ្ចូល Gemini API Key នៅផ្នែកខាងឆ្វេង (Sidebar) ដើម្បីចាប់ផ្តើម។")
+                st.error(f"កើតមានបញ្ហា: {str(e)}")
+
+st.markdown("---")
+st.caption("អភិវឌ្ឍន៍ដោយប្រើ Streamlit និង Gemini 1.5 Flash API")
