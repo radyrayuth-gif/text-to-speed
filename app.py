@@ -10,26 +10,30 @@ st.markdown("---")
 st.sidebar.header("⚙️ ការកំណត់")
 api_key = st.sidebar.text_input("បញ្ចូល Gemini API Key:", type="password")
 
-# មុខងារបកប្រែ
+# មុខងារបកប្រែដែលគេប្រើជាទូទៅ
 def translate_srt(text, key):
+    # កំណត់ការប្រើប្រាស់ API
     genai.configure(api_key=key)
     
-    # ហៅប្រើម៉ូដែល Gemini 1.5 Flash តាមរបៀបសាមញ្ញ
+    # ហៅប្រើម៉ូដែល Gemini 1.5 Flash តាមរបៀប Standard បំផុត
     model = genai.GenerativeModel("gemini-1.5-flash")
     
+    # បញ្ជាឱ្យបកប្រែដោយរក្សាទម្រង់ SRT ឱ្យនៅដដែល
     prompt = f"""
-    You are a professional translator. Translate the following Chinese SRT subtitles into natural Khmer. 
-    Keep all timestamps (e.g., 00:00:01,000 --> 00:00:02,000) and subtitle numbers exactly as they are.
-    Only provide the translated content in SRT format.
+    You are a professional subtitle translator. Your task is to translate Chinese SRT subtitles into Khmer.
+    Strict Instructions:
+    1. Keep all subtitle numbers and timestamps exactly as they are.
+    2. Translate the Chinese text into natural, emotional Khmer.
+    3. Output ONLY the SRT format.
     
-    Content:
+    SRT Content:
     {text}
     """
     
     response = model.generate_content(prompt)
     return response.text
 
-# ផ្ទៃកម្មវិធី
+# ផ្ទៃកម្មវិធី UI
 col1, col2 = st.columns(2)
 
 with col1:
@@ -42,16 +46,23 @@ with col2:
         if not api_key:
             st.error("សូមបញ្ចូល API Key ក្នុង Sidebar!")
         elif not input_data.strip():
-            st.warning("សូមបញ្ចូលអត្ថបទ!")
+            st.warning("សូមបញ្ចូលអត្ថបទដែលត្រូវបកប្រែ!")
         else:
             try:
-                with st.spinner("កំពុងបកប្រែ..."):
+                with st.spinner("កំពុងបកប្រែ... សូមរង់ចាំ"):
                     translated_text = translate_srt(input_data, api_key)
-                    st.text_area("លទ្ធផល៖", value=translated_text, height=355)
+                    st.text_area("លទ្ធផល៖", value=translated_text, height=350)
+                    
+                    st.download_button(
+                        label="ទាញយកឯកសារ .srt",
+                        data=translated_text,
+                        file_name="translated_khmer.srt",
+                        mime="text/plain"
+                    )
                     st.success("ការបកប្រែបានជោគជ័យ!")
             except Exception as e:
                 st.error(f"បញ្ហាបច្ចេកទេស៖ {str(e)}")
-                st.info("ប្រសិនបើឃើញ Error 404 ម្តងទៀត សូមប្រាកដថាអ្នកបាន Update requirements.txt រួចរាល់។")
+                st.info("ប្រសិនបើឃើញ Error 404 សូមប្រាកដថាអ្នកបាន Reboot App ក្នុង Streamlit រួចរាល់។")
 
 st.markdown("---")
 st.caption("អភិវឌ្ឍន៍ដោយប្រើ Streamlit និង Gemini 1.5 Flash API")
